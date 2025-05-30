@@ -1,0 +1,42 @@
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Kubernetes generated files
+*.yaml.bak
+kubeconfig
+.kube/
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+temp/
+
+# Terraform files
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl
+terraform.tfstate.backup
+crash.log
+
+# Terragrunt files
+.terragrunt-cache/
+terragrunt.iml
+
+.env
