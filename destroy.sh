@@ -9,9 +9,4 @@ export TG_WORKING_DIR=$PWD/infra/terragrunt-deploy
 export TG_NO_AUTO_INIT=true
 export TG_NON_INTERACTIVE=true
 
-# terragrunt init --all
-
-terragrunt hcl fmt
-terraform fmt -recursive
-
-terragrunt apply --all
+terragrunt destroy --all

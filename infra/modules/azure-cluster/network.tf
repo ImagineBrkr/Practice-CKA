@@ -18,17 +18,71 @@ resource "azurerm_subnet" "nodes_subnet" {
   default_outbound_access_enabled = true
 }
 
+
+# PUBLIC IP
+
+resource "azurerm_public_ip" "master_node_public_ip" {
+  name                = local.public_ip_name
+  resource_group_name = data.azurerm_resource_group.main_resource_group.name
+  location            = var.location
+  allocation_method   = "Static"
+
+  tags = var.default_tags
+}
+
+
+# NETWORK INTERFACES FOR THE NODES
+
+
+resource "azurerm_network_interface" "master_node_network_interface" {
+  name                = local.master_network_interface_name
+  location            = var.location
+  resource_group_name = data.azurerm_resource_group.main_resource_group.name
+
+  ip_configuration {
+    name                          = "internal"
+    subnet_id                     = azurerm_subnet.nodes_subnet.id
+    private_ip_address_allocation = "Static"
+    primary                       = true
+    private_ip_address            = local.master_node_private_ip
+  }
+
+  ip_configuration {
+    name                          = "external"
+    subnet_id                     = azurerm_subnet.nodes_subnet.id
+    private_ip_address_allocation = "Dynamic"
+    public_ip_address_id          = azurerm_public_ip.master_node_public_ip.id
+  }
+}
+
+
+resource "azurerm_network_interface" "worker_node_network_interface" {
+  count               = var.woker_node_count
+  name                = "${local.worker_network_interface_name_prefix}-${count.index}"
+  location            = var.location
+  resource_group_name = data.azurerm_resource_group.main_resource_group.name
+
+  ip_configuration {
+    name                          = "internal"
+    subnet_id                     = azurerm_subnet.nodes_subnet.id
+    private_ip_address_allocation = "Dynamic"
+  }
+}
+
+
 # SECURITY GROUPS FOR THE NODES
 
 resource "azurerm_network_security_group" "cluster_network_security_group" {
   name                = "cluster-nsg"
   location            = var.location
   resource_group_name = data.azurerm_resource_group.main_resource_group.name
+
+  tags = var.default_tags
 }
 
 # Application Security Groups logically separate the nodes so we only apply security rules to one subset of nodes.
 resource "azurerm_application_security_group" "master_node_application_security_group" {
-  name                = "${local.master_node_name}-nsg"
+  name                = local.master_security_group_name
   location            = var.location
   resource_group_name = data.azurerm_resource_group.main_resource_group.name
 
@@ -36,7 +90,7 @@ resource "azurerm_application_security_group" "master_node_application_security_
 }
 
 resource "azurerm_network_security_rule" "master_node_security_group_allow_ssh" {
-  name                                       = "${local.master_node_name}-asg-allow-ssh"
+  name                                       = "${local.master_security_group_name}-allow-ssh"
   priority                                   = 100
   direction                                  = "Inbound"
   access                                     = "Allow"
@@ -50,7 +104,7 @@ resource "azurerm_network_security_rule" "master_node_security_group_allow_ssh" 
 }
 
 resource "azurerm_network_security_rule" "master_node_security_group_allow_http" {
-  name                                       = "${local.master_node_name}-asg-allow-http"
+  name                                       = "${local.master_security_group_name}-allow-http"
   priority                                   = 101
   direction                                  = "Inbound"
   access                                     = "Allow"
@@ -64,7 +118,7 @@ resource "azurerm_network_security_rule" "master_node_security_group_allow_http"
 }
 
 resource "azurerm_network_security_rule" "master_node_security_group_allow_https" {
-  name                                       = "${local.master_node_name}-asg-allow-https"
+  name                                       = "${local.master_security_group_name}-allow-https"
   priority                                   = 102
   direction                                  = "Inbound"
   access                                     = "Allow"
@@ -77,9 +131,9 @@ resource "azurerm_network_security_rule" "master_node_security_group_allow_https
   network_security_group_name                = azurerm_network_security_group.cluster_network_security_group.name
 }
 
-
+# Worker Nodes
 resource "azurerm_application_security_group" "worker_node_application_security_group" {
-  name                = "${local.worker_node_name}-asg"
+  name                = local.worker_security_group_name
   location            = var.location
   resource_group_name = data.azurerm_resource_group.main_resource_group.name
 
@@ -87,8 +141,8 @@ resource "azurerm_application_security_group" "worker_node_application_security_
 }
 
 resource "azurerm_network_security_rule" "worker_node_security_group_allow_ssh" {
-  name                                       = "local.worker_node_name-asg-allow-ssh"
-  priority                                   = 100
+  name                                       = "${local.worker_security_group_name}-allow-ssh"
+  priority                                   = 103
   direction                                  = "Inbound"
   access                                     = "Allow"
   protocol                                   = "Tcp"
@@ -101,17 +155,30 @@ resource "azurerm_network_security_rule" "worker_node_security_group_allow_ssh" 
 }
 
 
-# NETWORK INTERFACES FOR THE NODES
+# ASSOCIATIONS WITH NETWORK INTERFACES
 
 
-resource "azurerm_network_interface" "master_node_network_interface" {
-  name                = "${var.project_name}-nic"
-  location            = var.location
-  resource_group_name = data.azurerm_resource_group.main_resource_group.name
+# Master node
+resource "azurerm_network_interface_security_group_association" "cluster_network_security_group_association_master_node" {
+  network_interface_id      = azurerm_network_interface.master_node_network_interface.id
+  network_security_group_id = azurerm_network_security_group.cluster_network_security_group.id
+}
 
-  ip_configuration {
-    name                          = "internal"
-    subnet_id                     = azurerm_subnet.nodes_subnet.id
-    private_ip_address_allocation = "Dynamic"
-  }
+resource "azurerm_network_interface_application_security_group_association" "master_application_security_group_association_master_node" {
+  network_interface_id          = azurerm_network_interface.master_node_network_interface.id
+  application_security_group_id = azurerm_application_security_group.master_node_application_security_group.id
+}
+
+
+# Worker nodes
+resource "azurerm_network_interface_security_group_association" "cluster_network_security_group_association_worker_nodes" {
+  count                     = var.woker_node_count
+  network_interface_id      = azurerm_network_interface.worker_node_network_interface[count.index].id
+  network_security_group_id = azurerm_network_security_group.cluster_network_security_group.id
+}
+
+resource "azurerm_network_interface_application_security_group_association" "master_application_security_group_association_worker_node" {
+  count                         = var.woker_node_count
+  network_interface_id          = azurerm_network_interface.worker_node_network_interface[count.index].id
+  application_security_group_id = azurerm_application_security_group.master_node_application_security_group.id
 }

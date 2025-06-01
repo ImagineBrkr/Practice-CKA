@@ -40,3 +40,5 @@ crash.log
 terragrunt.iml
 
 .env
+variables.sh
+*.pem

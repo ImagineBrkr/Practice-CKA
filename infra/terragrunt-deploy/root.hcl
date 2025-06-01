@@ -7,9 +7,9 @@ remote_state {
   }
 
   config = {
-    resource_group_name  = "devops-iac"
-    storage_account_name = "devopsiactf"
-    container_name       = "terragrunt-test-dev"
+    resource_group_name  = "kube-cluster-cka"
+    storage_account_name = "kubeclusterckatf"
+    container_name       = "practice-cka-tf"
     key                  = "${path_relative_to_include()}/terraform.tfstate"
   }
 }
@@ -26,17 +26,27 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "=4.30.0"
     }
-    azuread = {
-      source  = "hashicorp/azuread"
-      version = "~> 3.4.0"
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.1.0"
+    }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.5.0"
     }
   }
 }
 
 provider "azurerm" {
   features {}
-  # subscription_id = var.subscription_id
+  use_cli = false
+  use_msi       = false
+  resource_provider_registrations = "none"
 }
+
+provider "tls" {}
+
+provider "local" {}
 EOF
 }
 
@@ -46,6 +56,6 @@ locals {
     Project    = "Practice-CKA"
     ProvidedBy = "Terraform"
   }
-  resource_group_name = "devops-iac"
-  location = "eastus"
+  resource_group_name = "kube-cluster-cka"
+  location            = "eastus"
 }
