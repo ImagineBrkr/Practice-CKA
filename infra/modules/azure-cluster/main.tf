@@ -40,10 +40,12 @@ resource "azurerm_linux_virtual_machine" "master_node_vm" {
   }
 
   user_data = base64encode(templatefile("${path.module}/scripts/master_node.sh", {
-    ETCD_VER = var.etcd_version,
-    KUBE_VER = var.kubernetes_version,
+    ETCD_VER               = var.etcd_version,
+    KUBE_VER               = var.kubernetes_version,
     MASTER_NODE_PRIVATE_IP = local.master_node_private_ip,
-    MASTER_NODE_PUBLIC_IP = azurerm_public_ip.master_node_public_ip.ip_address
+    MASTER_NODE_PUBLIC_IP  = azurerm_public_ip.master_node_public_ip.ip_address,
+    CLUSTER_ADMIN =  var.admin_username,
+    CLUSTER_NAME = var.project_name
   }))
 }
 

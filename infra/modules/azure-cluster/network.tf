@@ -105,7 +105,7 @@ resource "azurerm_network_security_rule" "master_node_security_group_allow_ssh" 
 
 resource "azurerm_network_security_rule" "master_node_security_group_allow_http" {
   name                                       = "${local.master_security_group_name}-allow-http"
-  priority                                   = 101
+  priority                                   = 200
   direction                                  = "Inbound"
   access                                     = "Allow"
   protocol                                   = "Tcp"
@@ -119,12 +119,26 @@ resource "azurerm_network_security_rule" "master_node_security_group_allow_http"
 
 resource "azurerm_network_security_rule" "master_node_security_group_allow_https" {
   name                                       = "${local.master_security_group_name}-allow-https"
-  priority                                   = 102
+  priority                                   = 300
   direction                                  = "Inbound"
   access                                     = "Allow"
   protocol                                   = "Tcp"
   source_port_range                          = "*"
   destination_port_range                     = "443"
+  source_address_prefix                      = "*"
+  destination_application_security_group_ids = [azurerm_application_security_group.master_node_application_security_group.id]
+  resource_group_name                        = data.azurerm_resource_group.main_resource_group.name
+  network_security_group_name                = azurerm_network_security_group.cluster_network_security_group.name
+}
+
+resource "azurerm_network_security_rule" "master_node_security_group_allow_kube_apiserver" {
+  name                                       = "${local.master_security_group_name}-allow-kube-api-server"
+  priority                                   = 600
+  direction                                  = "Inbound"
+  access                                     = "Allow"
+  protocol                                   = "Tcp"
+  source_port_range                          = "*"
+  destination_port_range                     = "6443"
   source_address_prefix                      = "*"
   destination_application_security_group_ids = [azurerm_application_security_group.master_node_application_security_group.id]
   resource_group_name                        = data.azurerm_resource_group.main_resource_group.name
@@ -142,7 +156,7 @@ resource "azurerm_application_security_group" "worker_node_application_security_
 
 resource "azurerm_network_security_rule" "worker_node_security_group_allow_ssh" {
   name                                       = "${local.worker_security_group_name}-allow-ssh"
-  priority                                   = 103
+  priority                                   = 500
   direction                                  = "Inbound"
   access                                     = "Allow"
   protocol                                   = "Tcp"
