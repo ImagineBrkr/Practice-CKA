@@ -44,8 +44,8 @@ resource "azurerm_linux_virtual_machine" "master_node_vm" {
     KUBE_VER               = var.kubernetes_version,
     MASTER_NODE_PRIVATE_IP = local.master_node_private_ip,
     MASTER_NODE_PUBLIC_IP  = azurerm_public_ip.master_node_public_ip.ip_address,
-    CLUSTER_ADMIN =  var.admin_username,
-    CLUSTER_NAME = var.project_name
+    CLUSTER_ADMIN          = var.admin_username,
+    CLUSTER_NAME           = var.project_name
   }))
 }
 
