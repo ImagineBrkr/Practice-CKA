@@ -8,6 +8,77 @@ MASTER_NODE_PRIVATE_IP=${MASTER_NODE_PRIVATE_IP}
 MASTER_NODE_PUBLIC_IP=${MASTER_NODE_PUBLIC_IP}
 CLUSTER_ADMIN=${CLUSTER_ADMIN}
 CLUSTER_NAME=${CLUSTER_NAME}
+NODE_NAME=${NODE_NAME}
+CNI_VERSION=${CNI_VERSION}
+KUBECTL_BIN="/opt/kubernetes/bin/kubectl"
+
+ARCH=$(uname -m)
+  case $ARCH in
+    armv7*) ARCH="arm";;
+    aarch64) ARCH="arm64";;
+    x86_64) ARCH="amd64";;
+  esac
+
+# --- HELPER FUNCTIONS ---
+
+generate_cert_and_kubeconfig() {
+    local COMPONENT=$1      # e.g. "kube-scheduler", "kube-controller-manager"
+    local CN=$2            # e.g. "system:kube-scheduler"
+    local O=$3             # Optional organization field
+    local KUBECONFIG_PATH=$4
+    local SERVER_URL=$5    # e.g. "https://127.0.0.1:6443"
+    
+    # Generate certificate configuration
+    cat <<EOF > /etc/kubernetes/pki/$COMPONENT.cnf
+[ req ]
+distinguished_name = req_distinguished_name
+prompt = no
+req_extensions = v3_req
+
+[ req_distinguished_name ]
+CN = $CN
+$${O:+O = $${O}}
+
+[ v3_req ]
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = clientAuth
+EOF
+
+    # Generate private key
+    openssl genrsa -out /etc/kubernetes/pki/$COMPONENT.key 2048
+
+    # Generate CSR
+    openssl req -new -key /etc/kubernetes/pki/$COMPONENT.key \
+        -out /etc/kubernetes/pki/$COMPONENT.csr \
+        -config /etc/kubernetes/pki/$COMPONENT.cnf
+
+    # Sign certificate
+    openssl x509 -req -in /etc/kubernetes/pki/$COMPONENT.csr \
+        -CA /etc/kubernetes/pki/ca.crt -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial \
+        -out /etc/kubernetes/pki/$COMPONENT.crt -days 1000 \
+        -extensions v3_req -extfile /etc/kubernetes/pki/$COMPONENT.cnf
+
+    # Generate kubeconfig
+    $KUBECTL_BIN config set-cluster $CLUSTER_NAME \
+        --certificate-authority=/etc/kubernetes/pki/ca.crt \
+        --embed-certs=true \
+        --server=$SERVER_URL \
+        --kubeconfig=$KUBECONFIG_PATH
+
+    $KUBECTL_BIN config set-credentials $CN \
+        --client-certificate=/etc/kubernetes/pki/$COMPONENT.crt \
+        --client-key=/etc/kubernetes/pki/$COMPONENT.key \
+        --embed-certs=true \
+        --kubeconfig=$KUBECONFIG_PATH
+
+    $KUBECTL_BIN config set-context default \
+        --cluster=${CLUSTER_NAME} \
+        --user=$CN \
+        --kubeconfig=$KUBECONFIG_PATH
+
+    $KUBECTL_BIN config use-context default \
+        --kubeconfig=$KUBECONFIG_PATH
+}
 
 # --- Disable swap ---
 # Kubernetes requires that you disable memory swap
@@ -32,10 +103,10 @@ mkdir -p /opt/etcd
 mkdir /tmp/etcd-download
 cd /tmp
 
-curl -L https://github.com/etcd-io/etcd/releases/download/${ETCD_VER}/etcd-${ETCD_VER}-linux-amd64.tar.gz \
-     -o /tmp/etcd-${ETCD_VER}-linux-amd64.tar.gz
-tar -xvf etcd-${ETCD_VER}-linux-amd64.tar.gz -C /tmp/etcd-download --strip-components=1 --no-same-owner
-rm -f /tmp/etcd-${ETCD_VER}-linux-amd64.tar.gz
+curl -L https://github.com/etcd-io/etcd/releases/download/${ETCD_VER}/etcd-${ETCD_VER}-linux-$ARCH.tar.gz \
+     -o /tmp/etcd-${ETCD_VER}-linux-$ARCH.tar.gz
+tar -xvf etcd-${ETCD_VER}-linux-$ARCH.tar.gz -C /tmp/etcd-download --strip-components=1 --no-same-owner
+rm -f /tmp/etcd-${ETCD_VER}-linux-$ARCH.tar.gz
 
 /tmp/etcd-download/etcd --version
 /tmp/etcd-download/etcdctl version
@@ -162,7 +233,7 @@ curl --cacert /etc/etcd/pki/ca.crt --cert /etc/etcd/pki/apiserver-etcd-client.cr
 mkdir -p /opt/kubernetes/bin
 cd /opt/kubernetes/bin
 
-curl -LO https://dl.k8s.io/release/${KUBE_VER}/bin/linux/amd64/kube-apiserver
+curl -LO https://dl.k8s.io/release/${KUBE_VER}/bin/linux/$ARCH/kube-apiserver
 chmod +x kube-apiserver
 
 # Kube-apiserver tls certificates
@@ -194,6 +265,7 @@ DNS.4 = kubernetes.default.svc.cluster.local
 IP.1 = 127.0.0.1
 IP.2 = ${MASTER_NODE_PRIVATE_IP}
 IP.3 = ${MASTER_NODE_PUBLIC_IP}
+IP.4 = 10.96.0.1
 EOF
 
 openssl genrsa -out /etc/kubernetes/pki/apiserver.key 2048
@@ -231,6 +303,7 @@ ExecStart=/opt/kubernetes/bin/kube-apiserver \\
   --tls-private-key-file=/etc/kubernetes/pki/apiserver.key \\
   --service-cluster-ip-range=10.96.0.0/12 \\
   --authorization-mode=Node,RBAC \\
+  # Certificates used by kube-apiserver (client) to talk to kubelet (server)
   # --kubelet-client-certificate=/etc/kubernetes/pki/apiserver.crt \\
   # --kubelet-client-key=/etc/kubernetes/pki/apiserver.key \\
   --service-account-key-file=/etc/kubernetes/pki/sa.pub \\
@@ -255,58 +328,21 @@ systemctl start kube-apiserver
 ##################################
 
 
-curl -L https://dl.k8s.io/release/${KUBE_VER}/bin/linux/amd64/kubectl -o /opt/kubernetes/bin/kubectl
-chmod +x /opt/kubernetes/bin/kubectl
+curl -L https://dl.k8s.io/release/${KUBE_VER}/bin/linux/$ARCH/kubectl -o $KUBECTL_BIN
+chmod +x $KUBECTL_BIN
+ln -s $KUBECTL_BIN /bin/kubectl
 
 # Generate client certificate signed by the cluster's CA.
-cat <<EOF > /etc/kubernetes/pki/kubeadmin.cnf
-[ req ]
-distinguished_name = req_distinguished_name
-prompt = no
-req_extensions = v3_req
-
-[ req_distinguished_name ]
-CN = ${CLUSTER_ADMIN}
-O = system:masters
-
-[ v3_req ]
-keyUsage = critical, digitalSignature, keyEncipherment
-extendedKeyUsage = clientAuth
-EOF
-
-openssl genrsa -out /etc/kubernetes/pki/kubeadmin.key 2048
-
-openssl req -new -key /etc/kubernetes/pki/kubeadmin.key -out /etc/kubernetes/pki/kubeadmin.csr \
-  -config /etc/kubernetes/pki/kubeadmin.cnf
-
-openssl x509 -req -in /etc/kubernetes/pki/kubeadmin.csr -CA /etc/kubernetes/pki/ca.crt \
-  -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial \
-  -out /etc/kubernetes/pki/kubeadmin.crt -days 1000 \
-  -extensions v3_req -extfile /etc/kubernetes/pki/kubeadmin.cnf
-
 KUBECONFIG=/home/${CLUSTER_ADMIN}/.kube/config
 mkdir -p "$(dirname "$KUBECONFIG")"
 chown ${CLUSTER_ADMIN}:${CLUSTER_ADMIN} /home/${CLUSTER_ADMIN}/.kube
 
-/opt/kubernetes/bin/kubectl config set-cluster ${CLUSTER_NAME} \
-  --server=https://${MASTER_NODE_PUBLIC_IP}:6443 \
-  --certificate-authority=/etc/kubernetes/pki/ca.crt \
-  --embed-certs=true \
-  --kubeconfig=$KUBECONFIG
-
-/opt/kubernetes/bin/kubectl config set-credentials ${CLUSTER_ADMIN} \
-  --client-certificate=/etc/kubernetes/pki/kubeadmin.crt \
-  --client-key=/etc/kubernetes/pki/kubeadmin.key \
-  --embed-certs=true \
-  --kubeconfig=$KUBECONFIG
-
-/opt/kubernetes/bin/kubectl config set-context ${CLUSTER_NAME} \
-  --cluster=${CLUSTER_NAME} \
-  --user=${CLUSTER_ADMIN} \
-  --kubeconfig=$KUBECONFIG
-
-/opt/kubernetes/bin/kubectl config use-context ${CLUSTER_NAME} \
-  --kubeconfig=$KUBECONFIG
+generate_cert_and_kubeconfig \
+    "kubeadmin" \
+    "${CLUSTER_ADMIN}" \
+    "system:masters" \
+    "$KUBECONFIG" \
+    "https://${MASTER_NODE_PUBLIC_IP}:6443"
 
 chown ${CLUSTER_ADMIN}:${CLUSTER_ADMIN} $KUBECONFIG
 
@@ -319,58 +355,19 @@ chown ${CLUSTER_ADMIN}:${CLUSTER_ADMIN} $KUBECONFIG
 mkdir -p /opt/kubernetes/bin
 cd /opt/kubernetes/bin
 
-curl -L https://dl.k8s.io/release/${KUBE_VER}/bin/linux/amd64/kube-controller-manager -o /opt/kubernetes/bin/kube-controller-manager
+curl -L https://dl.k8s.io/release/${KUBE_VER}/bin/linux/$ARCH/kube-controller-manager -o /opt/kubernetes/bin/kube-controller-manager
 chmod +x /opt/kubernetes/bin/kube-controller-manager
-
-# Client certificates to comunicate with kube-apiserver using TLS
-cat <<EOF > /etc/kubernetes/pki/controller-manager.cnf
-[ req ]
-distinguished_name = req_distinguished_name
-prompt = no
-req_extensions = v3_req
-
-[ req_distinguished_name ]
-CN = system:kube-controller-manager
-
-[ v3_req ]
-keyUsage = critical, digitalSignature, keyEncipherment
-extendedKeyUsage = clientAuth
-EOF
-
-openssl genrsa -out /etc/kubernetes/pki/kube-controller-manager.key 2048
-
-openssl req -new -key /etc/kubernetes/pki/kube-controller-manager.key \
-  -out /etc/kubernetes/pki/kube-controller-manager.csr \
-  -config /etc/kubernetes/pki/controller-manager.cnf
-
-openssl x509 -req -in /etc/kubernetes/pki/kube-controller-manager.csr \
-  -CA /etc/kubernetes/pki/ca.crt -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial \
-  -out /etc/kubernetes/pki/kube-controller-manager.crt -days 1000 \
-  -extensions v3_req -extfile /etc/kubernetes/pki/controller-manager.cnf
 
 # Kubeconfig file for kube-controller-manager
 KCM_KUBECONFIG="/etc/kubernetes/kube-controller-manager.kubeconfig"
 
-/opt/kubernetes/bin/kubectl config set-cluster ${CLUSTER_NAME} \
-  --certificate-authority=/etc/kubernetes/pki/ca.crt \
-  --embed-certs=true \
-  --server=https://127.0.0.1:6443 \
-  --kubeconfig=$KCM_KUBECONFIG
-
-/opt/kubernetes/bin/kubectl config set-credentials system:kube-controller-manager \
-  --client-certificate=/etc/kubernetes/pki/kube-controller-manager.crt \
-  --client-key=/etc/kubernetes/pki/kube-controller-manager.key \
-  --embed-certs=true \
-  --kubeconfig=$KCM_KUBECONFIG
-
-/opt/kubernetes/bin/kubectl config set-context default \
-  --cluster=${CLUSTER_NAME} \
-  --user=system:kube-controller-manager \
-  --kubeconfig=$KCM_KUBECONFIG
-
-/opt/kubernetes/bin/kubectl config use-context default \
-  --kubeconfig=$KCM_KUBECONFIG
-
+# Certificate and kubeconfig generatior to communicate with kube-apiserver
+generate_cert_and_kubeconfig \
+    "kube-controller-manager" \
+    "system:kube-controller-manager" \
+    "" \
+    "$KCM_KUBECONFIG" \
+    "https://127.0.0.1:6443"
 
 # Service configuration
 cat <<EOF > /etc/systemd/system/kube-controller-manager.service
@@ -411,55 +408,19 @@ systemctl start kube-controller-manager
 mkdir -p /opt/kubernetes/bin
 cd /opt/kubernetes/bin
 
-curl -L https://dl.k8s.io/release/${KUBE_VER}/bin/linux/amd64/kube-scheduler -o /opt/kubernetes/bin/kube-scheduler
+curl -L https://dl.k8s.io/release/${KUBE_VER}/bin/linux/$ARCH/kube-scheduler -o /opt/kubernetes/bin/kube-scheduler
 chmod +x /opt/kubernetes/bin/kube-scheduler
 
-# Client certificate to use with kube-apiserver
-cat <<EOF > /etc/kubernetes/pki/scheduler.cnf
-[ req ]
-distinguished_name = req_distinguished_name
-prompt = no
-req_extensions = v3_req
-
-[ req_distinguished_name ]
-CN = system:kube-scheduler
-
-[ v3_req ]
-keyUsage = critical, digitalSignature, keyEncipherment
-extendedKeyUsage = clientAuth
-EOF
-
-openssl genrsa -out /etc/kubernetes/pki/kube-scheduler.key 2048
-
-openssl req -new -key /etc/kubernetes/pki/kube-scheduler.key \
-  -out /etc/kubernetes/pki/kube-scheduler.csr \
-  -config /etc/kubernetes/pki/scheduler.cnf
-
-openssl x509 -req -in /etc/kubernetes/pki/kube-scheduler.csr \
-  -CA /etc/kubernetes/pki/ca.crt -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial \
-  -out /etc/kubernetes/pki/kube-scheduler.crt -days 1000 \
-  -extensions v3_req -extfile /etc/kubernetes/pki/scheduler.cnf
-
+# Kubeconfig file for kube-scheduler
 SCHED_KUBECONFIG="/etc/kubernetes/kube-scheduler.kubeconfig"
 
-/opt/kubernetes/bin/kubectl config set-cluster manual-k8s \
-  --certificate-authority=/etc/kubernetes/pki/ca.crt \
-  --embed-certs=true \
-  --server=https://127.0.0.1:6443 \
-  --kubeconfig=$SCHED_KUBECONFIG
-
-/opt/kubernetes/bin/kubectl config set-credentials system:kube-scheduler \
-  --client-certificate=/etc/kubernetes/pki/kube-scheduler.crt \
-  --client-key=/etc/kubernetes/pki/kube-scheduler.key \
-  --embed-certs=true \
-  --kubeconfig=$SCHED_KUBECONFIG
-
-/opt/kubernetes/bin/kubectl config set-context default \
-  --cluster=manual-k8s \
-  --user=system:kube-scheduler \
-  --kubeconfig=$SCHED_KUBECONFIG
-
-/opt/kubernetes/bin/kubectl config use-context default --kubeconfig=$SCHED_KUBECONFIG
+# Certificate and kubeconfig generatior to communicate with kube-apiserver
+generate_cert_and_kubeconfig \
+    "kube-scheduler" \
+    "system:kube-scheduler" \
+    "" \
+    "$SCHED_KUBECONFIG" \
+    "https://127.0.0.1:6443"
 
 # Service configuration
 cat <<EOF > /etc/systemd/system/kube-scheduler.service
@@ -470,7 +431,7 @@ After=network.target
 
 [Service]
 ExecStart=/opt/kubernetes/bin/kube-scheduler \
-  --kubeconfig=/etc/kubernetes/kube-scheduler.kubeconfig \
+  --kubeconfig=$SCHED_KUBECONFIG \
   --leader-elect=true
 
 Restart=always
@@ -483,3 +444,155 @@ EOF
 systemctl daemon-reload
 systemctl enable kube-scheduler
 systemctl start kube-scheduler
+
+
+##################################
+## --- kubelet INSTALLATION --- ##
+##################################
+
+
+mkdir -p /opt/kubernetes/bin
+cd /opt/kubernetes/bin
+
+curl -L https://dl.k8s.io/release/${KUBE_VER}/bin/linux/$ARCH/kubelet -o /opt/kubernetes/bin/kubelet
+chmod +x /opt/kubernetes/bin/kubelet
+
+# Kubeconfig file for master node's kubelet
+KUBELET_KUBECONFIG="/etc/kubernetes/kubelet.kubeconfig"
+
+# Certificate and kubeconfig generatior to communicate with kube-apiserver
+generate_cert_and_kubeconfig \
+    "${NODE_NAME}-kubelet" \
+    "system:node:${NODE_NAME}" \
+    "system:nodes" \
+    "$KUBELET_KUBECONFIG" \
+    "https://127.0.0.1:6443"
+
+# Kubelet service configuration
+cat <<EOF > /etc/kubernetes/kubelet-config.yaml
+kind: KubeletConfiguration
+apiVersion: kubelet.config.k8s.io/v1beta1
+enableServer: true
+authentication:
+  x509:
+    clientCAFile: /etc/kubernetes/pki/ca.crt
+  anonymous:
+    enabled: true
+  webhook:
+    enabled: true
+authorization:
+  mode: AlwaysAllow
+clusterDomain: cluster.local
+clusterDNS:
+  - 10.96.0.10
+cgroupDriver: systemd
+failSwapOn: true
+containerRuntimeEndpoint: unix:///run/containerd/containerd.sock
+EOF
+
+cat <<EOF > /etc/systemd/system/kubelet.service
+[Unit]
+Description=Kubelet
+Documentation=https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet/
+After=network.target
+
+[Service]
+ExecStart=/opt/kubernetes/bin/kubelet \\
+  --kubeconfig=$KUBELET_KUBECONFIG \\
+  --config=/etc/kubernetes/kubelet-config.yaml \\
+  --node-ip=${MASTER_NODE_PRIVATE_IP} \\
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable kubelet
+systemctl start kubelet
+
+
+#####################################
+## --- kube-proxy INSTALLATION --- ##
+#####################################
+
+
+mkdir -p /opt/kubernetes/bin
+cd /opt/kubernetes/bin
+
+curl -L https://dl.k8s.io/release/${KUBE_VER}/bin/linux/$ARCH/kube-proxy -o /opt/kubernetes/bin/kube-proxy
+chmod +x /opt/kubernetes/bin/kube-proxy
+
+# Kubeconfig file for master node's kubelet
+PROXY_KUBECONFIG="/etc/kubernetes/kube-proxy.kubeconfig"
+
+# Certificate and kubeconfig generatior to communicate with kube-apiserver
+generate_cert_and_kubeconfig \
+    "kube-proxy" \
+    "system:kube-proxy" \
+    "" \
+    "$PROXY_KUBECONFIG" \
+    "https://127.0.0.1:6443"
+
+# Service config
+cat <<EOF > /etc/kubernetes/kube-proxy-config.yaml
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: "iptables"
+clusterCIDR: "10.244.0.0/16"
+clientConnection:
+  kubeconfig: "$PROXY_KUBECONFIG"
+EOF
+
+cat <<EOF > /etc/systemd/system/kube-proxy.service
+[Unit]
+Description=Kubernetes Proxy
+After=network.target
+
+[Service]
+ExecStart=/opt/kubernetes/bin/kube-proxy \
+  --config=/etc/kubernetes/kube-proxy-config.yaml
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable kube-proxy
+systemctl start kube-proxy
+
+
+######################################
+## --- FLANNEL CNI INSTALLATION --- ##
+######################################
+
+# Necessary OS configurations:
+modprobe br_netfilter
+echo "br_netfilter" > /etc/modules-load.d/k8s.conf
+
+cat <<EOF > /etc/sysctl.d/99-kubernetes-cri.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.ipv4.ip_forward                 = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+EOF
+
+sysctl --system
+
+
+mkdir -p /opt/cni/bin
+cd /opt/cni/bin
+
+curl -L "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-$ARCH-${CNI_VERSION}.tgz" -o /tmp/cni-plugins.tgz
+tar -xvf /tmp/cni-plugins.tgz -C /opt/cni/bin --strip-components=1 --no-same-owner
+rm /tmp/cni-plugins.tgz
+
+systemctl restart kubelet
+
+# kube-flannel Kubernetes resources obtained from resources/kube-flannel.yaml
+curl -L https://raw.githubusercontent.com/flannel-io/flannel/refs/heads/master/Documentation/kube-flannel.yml -o /opt/kubernetes/kube-flannel.yml
+/opt/kubernetes/bin/kubectl apply -f /opt/kubernetes/kube-flannel.yml --kubeconfig=$KUBECONFIG

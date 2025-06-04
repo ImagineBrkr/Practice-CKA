@@ -81,6 +81,12 @@ variable "etcd_version" {
   default     = "v3.6.0"
 }
 
+variable "cni_version" {
+  description = "CNI Plugins version to be installed on master node"
+  type        = string
+  default     = "v1.7.1"
+}
+
 variable "kubernetes_version" {
   description = "Kubernetes version to be installed on the nodes"
   type        = string
