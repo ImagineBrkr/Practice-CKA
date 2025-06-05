@@ -48,7 +48,8 @@ resource "azurerm_linux_virtual_machine" "master_node_vm" {
     CLUSTER_ADMIN          = var.admin_username,
     CLUSTER_NAME           = var.project_name,
     NODE_NAME              = local.master_node_name,
-    CNI_VERSION            = var.cni_version
+    CNI_VERSION            = var.cni_version,
+    generate_worker_certs_script = file("${path.module}/scripts/generate_worker_certs.sh")
   })))
 }
 
@@ -82,4 +83,15 @@ resource "azurerm_linux_virtual_machine" "worker_node_vm" {
     sku       = var.source_image_reference.sku
     version   = var.source_image_reference.version
   }
+
+  user_data = sensitive(base64encode(templatefile("${path.module}/scripts/worker_node.sh", {
+    ETCD_VER               = var.etcd_version,
+    KUBE_VER               = var.kubernetes_version,
+    MASTER_NODE_PRIVATE_IP = local.master_node_private_ip,
+    MASTER_NODE_PUBLIC_IP  = azurerm_public_ip.master_node_public_ip.ip_address,
+    CLUSTER_ADMIN          = var.admin_username,
+    CLUSTER_NAME           = var.project_name,
+    NODE_NAME              = local.master_node_name,
+    CNI_VERSION            = var.cni_version
+  })))
 }

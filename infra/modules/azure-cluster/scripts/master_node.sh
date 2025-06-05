@@ -37,6 +37,8 @@ CA_CERT="$CA_DIR/ca.crt"
 KUBE_CERTIFICATES_DIR="/etc/kubernetes/pki"
 ETCD_CERTIFICATES_DIR="/etc/etcd/pki"
 
+KUBE_SCRIPTS_DIR="/opt/kubernetes/scripts"
+
 # --- HELPER FUNCTIONS ---
 
 generate_certificate() {
@@ -158,6 +160,7 @@ mkdir -p $CNI_BIN_DIR
 mkdir -p $CA_DIR
 mkdir -p $ETCD_CERTIFICATES_DIR
 mkdir -p $KUBE_CERTIFICATES_DIR
+mkdir -p $KUBE_SCRIPTS_DIR
 
 # --- Create Certificate Authority for ETCD and Kubernetes ---
 
@@ -602,3 +605,13 @@ systemctl restart kubelet
 # kube-flannel Kubernetes resources obtained from resources/kube-flannel.yaml
 curl -L https://raw.githubusercontent.com/flannel-io/flannel/refs/heads/master/Documentation/kube-flannel.yml -o /opt/kubernetes/kube-flannel.yml
 $KUBECTL_BIN apply -f /opt/kubernetes/kube-flannel.yml --kubeconfig=$KUBECONFIG
+
+
+# #############################################
+# ## --- WORKER NODE REGISTRATION SCRIPT --- ##
+# #############################################
+
+
+cat <<EOF > $KUBE_SCRIPTS_DIR/generate_worker_certs.sh
+${generate_worker_certs_script}
+EOF
