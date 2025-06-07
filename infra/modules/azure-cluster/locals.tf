@@ -12,8 +12,10 @@ locals {
   master_network_interface_name        = "${local.master_node_name}-nic"
   worker_network_interface_name_prefix = "${local.worker_node_name_prefix}-nic"
 
-  master_node_private_ip = "10.0.0.4"
+  master_node_private_ip = "10.0.0.10"
 
   public_ip_name = "${var.project_name}-public_ip"
 
+  # generat_eworker_certs script
+  generate_certs_user = "certs-user"
 }

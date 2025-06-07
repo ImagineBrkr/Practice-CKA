@@ -13,6 +13,8 @@ CLUSTER_NAME=${CLUSTER_NAME}
 NODE_NAME=${NODE_NAME}
 CNI_VERSION=${CNI_VERSION}
 
+GENERATE_CERTS_USER=${GENERATE_CERTS_USER}
+
 ARCH=$(uname -m)
   case $ARCH in
     armv7*) ARCH="arm";;
@@ -168,6 +170,44 @@ openssl genrsa -out $CA_KEY 2048
 openssl req -x509 -new -nodes -key $CA_KEY -subj "/CN=kubernetes-ca" -days 1000 -out $CA_CERT
 cp $CA_CERT /usr/local/share/ca-certificates/ca.crt
 update-ca-certificates
+
+
+#############################################
+## --- WORKER NODE REGISTRATION SCRIPT --- ##
+#############################################
+
+
+GENERATE_CERTS_SCRIPT_LOCATION="$KUBE_SCRIPTS_DIR/generate_worker_certs.sh"
+
+# User creation. This user will be used by the worker node
+useradd -m -s /bin/bash $GENERATE_CERTS_USER
+mkdir -p /home/$GENERATE_CERTS_USER/.ssh
+touch /home/$GENERATE_CERTS_USER/.ssh/authorized_keys
+
+# Private key to use scp with worker nodes
+GENERATE_CERTS_USER_WORKER_PRIVATE_KEY_LOCATION="/home/$GENERATE_CERTS_USER/.ssh/worker-nodes.pem"
+cat <<EOF > $GENERATE_CERTS_USER_WORKER_PRIVATE_KEY_LOCATION
+${generate_certs_user_worker_private_key}
+EOF
+chmod 400 $GENERATE_CERTS_USER_WORKER_PRIVATE_KEY_LOCATION
+
+# Script to generate certs and send them to worker nodes
+cat <<EOF > $GENERATE_CERTS_SCRIPT_LOCATION
+${generate_certs_script}
+EOF
+chmod 700 $GENERATE_CERTS_SCRIPT_LOCATION
+
+
+# The SSH Key can only be used to execute this script
+echo "command=\"sudo $GENERATE_CERTS_SCRIPT_LOCATION \$SSH_ORIGINAL_COMMAND\",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ${generate_certs_user_master_public_key}" | tee -a /home/$GENERATE_CERTS_USER/.ssh/authorized_keys
+
+# Permissions
+chmod 700 /home/$GENERATE_CERTS_USER/.ssh
+chmod 600 /home/$GENERATE_CERTS_USER/.ssh/authorized_keys
+chown -R $GENERATE_CERTS_USER:$GENERATE_CERTS_USER /home/$GENERATE_CERTS_USER/.ssh
+
+echo "$GENERATE_CERTS_USER ALL=(ALL) NOPASSWD: $GENERATE_CERTS_SCRIPT_LOCATION *" | tee /etc/sudoers.d/$GENERATE_CERTS_USER
+chmod 440 /etc/sudoers.d/$GENERATE_CERTS_USER
 
 
 ###############################
@@ -606,12 +646,3 @@ systemctl restart kubelet
 curl -L https://raw.githubusercontent.com/flannel-io/flannel/refs/heads/master/Documentation/kube-flannel.yml -o /opt/kubernetes/kube-flannel.yml
 $KUBECTL_BIN apply -f /opt/kubernetes/kube-flannel.yml --kubeconfig=$KUBECONFIG
 
-
-# #############################################
-# ## --- WORKER NODE REGISTRATION SCRIPT --- ##
-# #############################################
-
-
-cat <<EOF > $KUBE_SCRIPTS_DIR/generate_worker_certs.sh
-${generate_worker_certs_script}
-EOF

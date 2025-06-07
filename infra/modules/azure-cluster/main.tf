@@ -9,6 +9,17 @@ resource "local_file" "private_key" {
   file_permission = "0600"
 }
 
+# SSH keys for generate_certs script
+resource "tls_private_key" "generate_certs_user_ssh_key_master" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "tls_private_key" "generate_certs_user_ssh_key_worker" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
 resource "azurerm_linux_virtual_machine" "master_node_vm" {
   name                = local.master_node_name
   computer_name       = local.master_node_name
@@ -41,15 +52,18 @@ resource "azurerm_linux_virtual_machine" "master_node_vm" {
   }
 
   user_data = sensitive(base64encode(templatefile("${path.module}/scripts/master_node.sh", {
-    ETCD_VER               = var.etcd_version,
-    KUBE_VER               = var.kubernetes_version,
-    MASTER_NODE_PRIVATE_IP = local.master_node_private_ip,
-    MASTER_NODE_PUBLIC_IP  = azurerm_public_ip.master_node_public_ip.ip_address,
-    CLUSTER_ADMIN          = var.admin_username,
-    CLUSTER_NAME           = var.project_name,
-    NODE_NAME              = local.master_node_name,
-    CNI_VERSION            = var.cni_version,
-    generate_worker_certs_script = file("${path.module}/scripts/generate_worker_certs.sh")
+    ETCD_VER                       = var.etcd_version,
+    KUBE_VER                       = var.kubernetes_version,
+    MASTER_NODE_PRIVATE_IP         = local.master_node_private_ip,
+    MASTER_NODE_PUBLIC_IP          = azurerm_public_ip.master_node_public_ip.ip_address,
+    CLUSTER_ADMIN                  = var.admin_username,
+    CLUSTER_NAME                   = var.project_name,
+    NODE_NAME                      = local.master_node_name,
+    CNI_VERSION                    = var.cni_version,
+    GENERATE_CERTS_USER            = local.generate_certs_user,
+    generate_certs_user_master_public_key = tls_private_key.generate_certs_user_ssh_key_master.public_key_openssh,
+    generate_certs_user_worker_private_key = tls_private_key.generate_certs_user_ssh_key_worker.private_key_pem
+    generate_certs_script   = file("${path.module}/scripts/generate_worker_certs.sh"),
   })))
 }
 
@@ -85,13 +99,16 @@ resource "azurerm_linux_virtual_machine" "worker_node_vm" {
   }
 
   user_data = sensitive(base64encode(templatefile("${path.module}/scripts/worker_node.sh", {
-    ETCD_VER               = var.etcd_version,
-    KUBE_VER               = var.kubernetes_version,
-    MASTER_NODE_PRIVATE_IP = local.master_node_private_ip,
-    MASTER_NODE_PUBLIC_IP  = azurerm_public_ip.master_node_public_ip.ip_address,
-    CLUSTER_ADMIN          = var.admin_username,
-    CLUSTER_NAME           = var.project_name,
-    NODE_NAME              = local.master_node_name,
-    CNI_VERSION            = var.cni_version
+    KUBE_VER                       = var.kubernetes_version,
+    MASTER_NODE_PRIVATE_IP         = local.master_node_private_ip,
+    MASTER_NODE_PUBLIC_IP          = azurerm_public_ip.master_node_public_ip.ip_address,
+    CLUSTER_ADMIN                  = var.admin_username,
+    CLUSTER_NAME                   = var.project_name,
+    NODE_NAME                      = "${local.worker_node_name_prefix}-${count.index}",
+    NODE_IP                        = azurerm_network_interface.worker_node_network_interface[count.index].private_ip_address
+    CNI_VERSION                    = var.cni_version,
+    GENERATE_CERTS_USER            = local.generate_certs_user,
+    generate_certs_user_master_private_key = tls_private_key.generate_certs_user_ssh_key_master.private_key_pem,
+    generate_certs_user_worker_public_key = tls_private_key.generate_certs_user_ssh_key_worker.public_key_openssh
   })))
 }
