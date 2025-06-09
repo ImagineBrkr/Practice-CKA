@@ -67,6 +67,9 @@ resource "azurerm_network_interface" "worker_node_network_interface" {
     subnet_id                     = azurerm_subnet.nodes_subnet.id
     private_ip_address_allocation = "Dynamic"
   }
+  depends_on = [
+    azurerm_network_interface.master_node_network_interface
+  ]
 }
 
 

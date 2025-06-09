@@ -26,9 +26,9 @@ CNI_BIN_DIR="/opt/cni/bin"
 KUBE_BIN_DIR="/opt/kubernetes/bin"
 KUBELET_BIN="$KUBE_BIN_DIR/kubelet"
 KUBE_PROXY_BIN="$KUBE_BIN_DIR/kube-proxy"
+KUBE_KUBECONFIG_DIR="/etc/kubernetes"
 
 CA_DIR="/etc/kubernetes/pki/ca"
-CA_KEY="$CA_DIR/ca.key"
 CA_CERT="$CA_DIR/ca.crt"
 
 KUBE_CERTIFICATES_DIR="/etc/kubernetes/pki"
@@ -59,6 +59,7 @@ mkdir -p $KUBE_BIN_DIR
 mkdir -p $CNI_BIN_DIR
 mkdir -p $CA_DIR
 mkdir -p $KUBE_CERTIFICATES_DIR
+mkdir -p $KUBE_KUBECONFIG_DIR
 
 
 #############################################
@@ -109,3 +110,130 @@ until /usr/bin/ssh -i "$GENERATE_CERTS_USER_WORKER_PRIVATE_KEY_LOCATION" \
 
   sleep $retry_interval
 done
+
+tar -xvf /home/$GENERATE_CERTS_USER/worker-certs.tar.gz -C $KUBE_KUBECONFIG_DIR \
+    --strip-components=1 --no-same-owner --owner=root --group=root
+rm /home/$GENERATE_CERTS_USER/worker-certs.tar.gz
+
+ls $KUBE_KUBECONFIG_DIR
+KUBELET_KUBECONFIG=$KUBE_KUBECONFIG_DIR/kubelet.kubeconfig
+PROXY_KUBECONFIG=$KUBE_KUBECONFIG_DIR/kube-proxy.kubeconfig
+mv $KUBE_KUBECONFIG_DIR/ca.crt $CA_CERT
+
+##################################
+## --- kubelet INSTALLATION --- ##
+##################################
+
+
+curl -L https://dl.k8s.io/release/${KUBE_VER}/bin/linux/$ARCH/kubelet -o $KUBELET_BIN
+chmod +x $KUBELET_BIN
+$KUBELET_BIN --version
+
+# Kubelet service configuration
+cat <<EOF > /etc/kubernetes/kubelet-config.yaml
+kind: KubeletConfiguration
+apiVersion: kubelet.config.k8s.io/v1beta1
+enableServer: true
+authentication:
+  x509:
+    clientCAFile: $CA_CERT
+  anonymous:
+    enabled: true
+  webhook:
+    enabled: true
+authorization:
+  mode: AlwaysAllow
+clusterDomain: cluster.local
+clusterDNS:
+  - 10.96.0.10
+cgroupDriver: systemd
+failSwapOn: true
+containerRuntimeEndpoint: unix:///run/containerd/containerd.sock
+EOF
+
+cat <<EOF > /etc/systemd/system/kubelet.service
+[Unit]
+Description=Kubelet
+Documentation=https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet/
+After=network.target
+
+[Service]
+ExecStart=$KUBELET_BIN \\
+  --kubeconfig=$KUBELET_KUBECONFIG \\
+  --config=/etc/kubernetes/kubelet-config.yaml \\
+  --node-ip=${NODE_IP} \\
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable kubelet
+systemctl start kubelet
+
+
+#####################################
+## --- kube-proxy INSTALLATION --- ##
+#####################################
+
+
+curl -L https://dl.k8s.io/release/${KUBE_VER}/bin/linux/$ARCH/kube-proxy -o $KUBE_PROXY_BIN
+chmod +x $KUBE_PROXY_BIN
+$KUBE_PROXY_BIN --version
+
+# Service config
+cat <<EOF > /etc/kubernetes/kube-proxy-config.yaml
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: "iptables"
+clusterCIDR: "10.244.0.0/16"
+clientConnection:
+  kubeconfig: "$PROXY_KUBECONFIG"
+EOF
+
+cat <<EOF > /etc/systemd/system/kube-proxy.service
+[Unit]
+Description=Kubernetes Proxy
+Documentation=https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/
+After=network.target
+
+[Service]
+ExecStart=$KUBE_PROXY_BIN \
+  --config=/etc/kubernetes/kube-proxy-config.yaml
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable kube-proxy
+systemctl start kube-proxy
+
+
+##############################
+## --- CNI INSTALLATION --- ##
+##############################
+
+# Necessary OS configurations:
+modprobe br_netfilter
+echo "br_netfilter" > /etc/modules-load.d/k8s.conf
+
+cat <<EOF > /etc/sysctl.d/99-kubernetes-cri.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.ipv4.ip_forward                 = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+EOF
+
+sysctl --system
+
+# CNI binaries installation
+curl -L "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-$ARCH-${CNI_VERSION}.tgz" -o /tmp/cni-plugins-linux-$ARCH-${CNI_VERSION}.tgz
+tar -xvf /tmp/cni-plugins-linux-$ARCH-${CNI_VERSION}.tgz -C $CNI_BIN_DIR --strip-components=1 --no-same-owner
+
+systemctl restart kubelet

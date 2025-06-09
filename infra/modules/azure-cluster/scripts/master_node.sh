@@ -168,6 +168,7 @@ mkdir -p $KUBE_SCRIPTS_DIR
 
 openssl genrsa -out $CA_KEY 2048
 openssl req -x509 -new -nodes -key $CA_KEY -subj "/CN=kubernetes-ca" -days 1000 -out $CA_CERT
+chmod 644 $CA_CERT
 cp $CA_CERT /usr/local/share/ca-certificates/ca.crt
 update-ca-certificates
 
@@ -393,6 +394,7 @@ ln -s $KUBECTL_BIN /bin/kubectl
 
 # Generate client certificate signed by the cluster's CA.
 KUBECONFIG=/home/${CLUSTER_ADMIN}/.kube/config
+PUBLIC_KUBECONFIG=/home/${CLUSTER_ADMIN}/.kube/public-config
 mkdir -p "$(dirname "$KUBECONFIG")"
 chown ${CLUSTER_ADMIN}:${CLUSTER_ADMIN} /home/${CLUSTER_ADMIN}/.kube
 
@@ -401,9 +403,18 @@ generate_cert_and_kubeconfig \
     "${CLUSTER_ADMIN}" \
     "system:masters" \
     "$KUBECONFIG" \
+    "https://127.0.0.1:6443"
+
+generate_cert_and_kubeconfig \
+    "kubeadmin" \
+    "${CLUSTER_ADMIN}" \
+    "system:masters" \
+    "$PUBLIC_KUBECONFIG" \
     "https://${MASTER_NODE_PUBLIC_IP}:6443"
 
+
 chown ${CLUSTER_ADMIN}:${CLUSTER_ADMIN} $KUBECONFIG
+chown ${CLUSTER_ADMIN}:${CLUSTER_ADMIN} $PUBLIC_KUBECONFIG
 
 
 ##################################################

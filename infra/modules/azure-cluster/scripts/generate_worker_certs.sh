@@ -168,7 +168,7 @@ scp -i \$GENERATE_CERTS_USER_WORKER_PRIVATE_KEY_LOCATION \\
     -o StrictHostKeyChecking=no \\
     -o UserKnownHostsFile=/dev/null \\
     "\${WORK_DIR}.tar.gz" \\
-    "\${GENERATE_CERTS_USER}@\${NODE_IP}:/home/\${GENERATE_CERTS_USER}/"
+    "\${GENERATE_CERTS_USER}@\${NODE_IP}:/home/\${GENERATE_CERTS_USER}/worker-certs.tar.gz"
 
 # Cleanup
 rm -rf "\${WORK_DIR}" "\${WORK_DIR}.tar.gz"
