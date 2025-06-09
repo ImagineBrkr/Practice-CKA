@@ -42,3 +42,4 @@ terragrunt.iml
 .env
 variables.sh
 *.pem
+*.kubeconfig

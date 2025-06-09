@@ -14,6 +14,7 @@ NODE_NAME=${NODE_NAME}
 CNI_VERSION=${CNI_VERSION}
 
 GENERATE_CERTS_USER=${GENERATE_CERTS_USER}
+REQUEST_KUBECONFIG_USER=${REQUEST_KUBECONFIG_USER}
 
 ARCH=$(uname -m)
   case $ARCH in
@@ -394,7 +395,6 @@ ln -s $KUBECTL_BIN /bin/kubectl
 
 # Generate client certificate signed by the cluster's CA.
 KUBECONFIG=/home/${CLUSTER_ADMIN}/.kube/config
-PUBLIC_KUBECONFIG=/home/${CLUSTER_ADMIN}/.kube/public-config
 mkdir -p "$(dirname "$KUBECONFIG")"
 chown ${CLUSTER_ADMIN}:${CLUSTER_ADMIN} /home/${CLUSTER_ADMIN}/.kube
 
@@ -405,16 +405,7 @@ generate_cert_and_kubeconfig \
     "$KUBECONFIG" \
     "https://127.0.0.1:6443"
 
-generate_cert_and_kubeconfig \
-    "kubeadmin" \
-    "${CLUSTER_ADMIN}" \
-    "system:masters" \
-    "$PUBLIC_KUBECONFIG" \
-    "https://${MASTER_NODE_PUBLIC_IP}:6443"
-
-
 chown ${CLUSTER_ADMIN}:${CLUSTER_ADMIN} $KUBECONFIG
-chown ${CLUSTER_ADMIN}:${CLUSTER_ADMIN} $PUBLIC_KUBECONFIG
 
 
 ##################################################
@@ -656,4 +647,35 @@ systemctl restart kubelet
 # kube-flannel Kubernetes resources obtained from resources/kube-flannel.yaml
 curl -L https://raw.githubusercontent.com/flannel-io/flannel/refs/heads/master/Documentation/kube-flannel.yml -o /opt/kubernetes/kube-flannel.yml
 $KUBECTL_BIN apply -f /opt/kubernetes/kube-flannel.yml --kubeconfig=$KUBECONFIG
+
+
+#######################################
+## --- REQUEST KUBECONFIG SCRIPT --- ##
+#######################################
+
+
+PUBLIC_KUBECONFIG=/home/${REQUEST_KUBECONFIG_USER}/.kube/public-config
+
+# Certificate generation
+generate_cert_and_kubeconfig \
+    "kubeadmin" \
+    "${CLUSTER_ADMIN}" \
+    "system:masters" \
+    "$PUBLIC_KUBECONFIG" \
+    "https://${MASTER_NODE_PUBLIC_IP}:6443"
+
+# User creation. This user will be used by the worker node
+useradd -m -s /bin/bash $REQUEST_KUBECONFIG_USER
+mkdir -p /home/$REQUEST_KUBECONFIG_USER/.ssh
+touch /home/$REQUEST_KUBECONFIG_USER/.ssh/authorized_keys
+
+# The SSH Key can only be used to execute this script
+echo "command=\"cat $PUBLIC_KUBECONFIG\",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ${request_kubeconfig_user_public_key}" | tee -a /home/$REQUEST_KUBECONFIG_USER/.ssh/authorized_keys
+
+# Permissions
+chmod 700 /home/$REQUEST_KUBECONFIG_USER/.ssh
+chmod 600 /home/$REQUEST_KUBECONFIG_USER/.ssh/authorized_keys
+chown -R $REQUEST_KUBECONFIG_USER:$REQUEST_KUBECONFIG_USER /home/$REQUEST_KUBECONFIG_USER/.ssh
+
+chown ${REQUEST_KUBECONFIG_USER}:${REQUEST_KUBECONFIG_USER} $PUBLIC_KUBECONFIG
 

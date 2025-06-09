@@ -14,42 +14,6 @@ remote_state {
   }
 }
 
-generate "provider" {
-  path      = "provider.tf"
-  if_exists = "overwrite_terragrunt"
-  contents  = <<EOF
-
-terraform {
-  required_version = "~> 1.12.0"
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "=4.30.0"
-    }
-    tls = {
-      source  = "hashicorp/tls"
-      version = "~> 4.1.0"
-    }
-    local = {
-      source  = "hashicorp/local"
-      version = "~> 2.5.0"
-    }
-  }
-}
-
-provider "azurerm" {
-  features {}
-  use_cli = false
-  use_msi       = false
-  resource_provider_registrations = "none"
-}
-
-provider "tls" {}
-
-provider "local" {}
-EOF
-}
-
 locals {
   source = "../..//modules"
   root_tags = {

@@ -16,6 +16,9 @@ locals {
 
   public_ip_name = "${var.project_name}-public_ip"
 
-  # generat_eworker_certs script
+  # generate_worker_certs script
   generate_certs_user = "certs-user"
+
+  # Requesting cluster kubeconfig
+  request_kubeconfig_user = "kubeconfig-user"
 }

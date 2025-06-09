@@ -1,25 +1,3 @@
-resource "tls_private_key" "vm_ssh_key" {
-  algorithm = "RSA"
-  rsa_bits  = 4096
-}
-
-resource "local_file" "private_key" {
-  content         = tls_private_key.vm_ssh_key.private_key_pem
-  filename        = var.private_key_path
-  file_permission = "0600"
-}
-
-# SSH keys for generate_certs script
-resource "tls_private_key" "generate_certs_user_ssh_key_master" {
-  algorithm = "RSA"
-  rsa_bits  = 4096
-}
-
-resource "tls_private_key" "generate_certs_user_ssh_key_worker" {
-  algorithm = "RSA"
-  rsa_bits  = 4096
-}
-
 resource "azurerm_linux_virtual_machine" "master_node_vm" {
   name                = local.master_node_name
   computer_name       = local.master_node_name
@@ -64,6 +42,8 @@ resource "azurerm_linux_virtual_machine" "master_node_vm" {
     generate_certs_user_master_public_key  = tls_private_key.generate_certs_user_ssh_key_master.public_key_openssh,
     generate_certs_user_worker_private_key = tls_private_key.generate_certs_user_ssh_key_worker.private_key_pem
     generate_certs_script                  = file("${path.module}/scripts/generate_worker_certs.sh"),
+    REQUEST_KUBECONFIG_USER                = local.request_kubeconfig_user,
+    request_kubeconfig_user_public_key     = tls_private_key.kubeconfig_user_ssh_key.public_key_openssh,
   })))
 }
 

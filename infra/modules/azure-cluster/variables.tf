@@ -75,6 +75,12 @@ variable "private_key_path" {
   default     = "~/.ssh/azure_cluster_private_key.pem"
 }
 
+variable "request_kubeconfig_user_private_key_path" {
+  description = "Path where the private key for kubeconfig request will be stored"
+  type        = string
+  default     = "~/.ssh/request_kubeconfig_private_key.pem"
+}
+
 variable "etcd_version" {
   description = "etcd version to be installed on master node"
   type        = string

@@ -120,6 +120,7 @@ KUBELET_KUBECONFIG=$KUBE_KUBECONFIG_DIR/kubelet.kubeconfig
 PROXY_KUBECONFIG=$KUBE_KUBECONFIG_DIR/kube-proxy.kubeconfig
 mv $KUBE_KUBECONFIG_DIR/ca.crt $CA_CERT
 
+
 ##################################
 ## --- kubelet INSTALLATION --- ##
 ##################################
