@@ -1,8 +1,8 @@
 terraform {
-  source = "${local.root_locals.locals.source}/helm-charts"
+  source = "${local.root_locals.locals.source}/cluster-configuration"
   before_hook "obtain_kubeconfig" {
     commands = ["apply", "plan", "destroy"]
-    execute  = ["./../scripts/obtain_kubeconfig.sh", dependency.azure-cluster.outputs.request_kubeconfig_user_private_key_path, dependency.azure-cluster.outputs.request_kubeconfig_user, dependency.azure-cluster.outputs.master_node_public_ip_address]
+    execute  = ["${get_terragrunt_dir()}/../scripts/obtain_kubeconfig.sh", dependency.azure-cluster.outputs.request_kubeconfig_user_private_key_path, dependency.azure-cluster.outputs.request_kubeconfig_user, dependency.azure-cluster.outputs.master_node_public_ip_address]
   }
 }
 

@@ -59,7 +59,7 @@ inputs = {
   location            = local.root_locals.locals.location
   woker_node_count    = 1
 
-  private_key_path = "${get_terragrunt_dir()}/../../../private_key.pem"
+  private_key_path                         = "${get_terragrunt_dir()}/../../../private_key.pem"
   request_kubeconfig_user_private_key_path = "${get_terragrunt_dir()}/../../../request_kubeconfig_user_private_key.pem"
 
   default_tags = local.default_tags

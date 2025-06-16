@@ -14,9 +14,10 @@ export TG_NON_INTERACTIVE=true
 export TF_VAR_private_key_path="$SCRIPT_DIR/private_key.pem"
 export TF_VAR_request_kubeconfig_user_private_key_path="$SCRIPT_DIR/request_kubeconfig_user_private_key.pem"
 
-# terragrunt init --all
+# terragrunt init --all 
 
 terragrunt hcl fmt
 terraform fmt -recursive
 
-terragrunt apply --all
+# terragrunt apply --all
+terragrunt apply --working-dir "infra/terragrunt-deploy/cluster-configuration" -auto-approve

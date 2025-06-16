@@ -557,6 +557,7 @@ ExecStart=$KUBELET_BIN \\
   --kubeconfig=$KUBELET_KUBECONFIG \\
   --config=/etc/kubernetes/kubelet-config.yaml \\
   --node-ip=${MASTER_NODE_PRIVATE_IP} \\
+  --node-labels node.kubernetes.io/control-plane=true
 
 Restart=always
 RestartSec=10
