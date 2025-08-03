@@ -153,6 +153,8 @@ apt install -y apt-transport-https curl containerd
 # --- Configure containerd ---
 mkdir -p /etc/containerd
 containerd config default > /etc/containerd/config.toml
+sed -i 's/^\(\s*\)SystemdCgroup = false/\1SystemdCgroup = true/' /etc/containerd/config.toml
+sed -i 's|^\(\s*\)sandbox_image = .*|\1sandbox_image = "registry.k8s.io/pause:3.10"|' /etc/containerd/config.toml
 systemctl restart containerd
 systemctl enable containerd
 
@@ -363,6 +365,7 @@ ExecStart=$KUBE_APISERVER_BIN \\
   --tls-cert-file=$KUBE_CERTIFICATES_DIR/kube-apiserver.crt \\
   --tls-private-key-file=$KUBE_CERTIFICATES_DIR/kube-apiserver.key \\
   --service-cluster-ip-range=10.96.0.0/12 \\
+  --service-node-port-range=80-32767 \\
   --authorization-mode=Node,RBAC \\
   # Certificates used by kube-apiserver (client) to talk to kubelet (server)
   # --kubelet-client-certificate=/etc/kubernetes/pki/apiserver.crt \\

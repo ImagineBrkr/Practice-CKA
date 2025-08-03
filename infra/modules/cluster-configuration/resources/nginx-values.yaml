@@ -1,19 +1,6 @@
 controller:
-  hostNetwork: true
-  hostPort:
-    enabled: true
-    ports:
-      http: 80
-      https: 443
   service:
     type: NodePort
     nodePort:
       http: 80
       https: 443
-  resources:
-    limits:
-      cpu: 500m
-      memory: 450Mi
-    requests:
-      cpu: 100m
-      memory: 90Mi

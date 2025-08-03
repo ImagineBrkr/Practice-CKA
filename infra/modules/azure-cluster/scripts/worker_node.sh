@@ -51,6 +51,8 @@ apt install -y apt-transport-https curl containerd
 # --- Configure containerd ---
 mkdir -p /etc/containerd
 containerd config default > /etc/containerd/config.toml
+sed -i 's/^\(\s*\)SystemdCgroup = false/\1SystemdCgroup = true/' /etc/containerd/config.toml
+sed -i 's|^\(\s*\)sandbox_image = .*|\1sandbox_image = "registry.k8s.io/pause:3.10"|' /etc/containerd/config.toml
 systemctl restart containerd
 systemctl enable containerd
 
